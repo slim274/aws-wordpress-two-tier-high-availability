@@ -1,11 +1,12 @@
 flowchart TB
-    Browser[Browser / Internet] --> ALB
-    subgraph LabVPC[Shared Week 6 high-availability AWS lab]
-       ALB[Application Load Balancer - public endpoint] --> Targets[Healthy target group]
-       Targets --> WP1[WordPress + PHP on EC2 - AZ A]
-       Targets --> WP2[WordPress + PHP on EC2 - AZ B]
-       ASG[EC2 Auto Scaling Group] -. maintains capacity .-> WP1
-       ASG -. maintains capacity .-> WP2
-       WP1 --> DB[(Private Amazon RDS MySQL - Multi-AZ)]
-       WP2 --> DB
+    USER[Internet / Browser] --> ALB[Public AWS Application Load Balancer]
+    subgraph VPC[AWS VPC / two Availability Zones]
+      ALB --> TG[HTTP target group and health checks]
+      TG --> W1[EC2 WordPress and PHP / AZ 1]
+      TG --> W2[EC2 WordPress and PHP / AZ 2]
+      ASG[EC2 Auto Scaling Group] -. maintain capacity .-> W1
+      ASG -. maintain capacity .-> W2
+      W1 -->|MySQL 3306 restricted| DB[(Private Amazon RDS MySQL)]
+      W2 -->|MySQL 3306 restricted| DB
     end
+    DB --- HA[RDS Multi-AZ configuration]

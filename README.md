@@ -1,95 +1,77 @@
-# WordPress on AWS | ALB, EC2 Auto Scaling & Private RDS
+# WordPress Two-Tier High-Availability Deployment on AWS
 
-**WordPress administration · AWS infrastructure · High availability checks · Database integration**
+**AWS EC2 · Application Load Balancer · Auto Scaling · Amazon RDS MySQL · WordPress/PHP**
 
-This repository documents the **WordPress application deployment and recovery segment** of my **DevOps Micro Internship (DMI) Cohort 2 — Week 6** high-availability AWS exercise (submission: **27 February 2026**). I deployed WordPress on EC2, connected it to a private RDS database, accessed the site through an Application Load Balancer, and investigated HTTP 503/target-health errors.
+**DevOps Micro Internship (DMI) — Cohort 2 | Week 6, Assignment 3 | February 2026**
 
-> **Relationship to the other project:** The WordPress steps were carried out **within the same two-tier, multi-AZ AWS lab** documented in `aws-two-tier-high-availability`. This is a *separate application and operations case study*, **not** a claim that I independently rebuilt an entirely new cloud stack.
+## Project overview
 
-## Architecture
+I deployed and troubleshot **WordPress** on AWS EC2, integrated it with a **private Amazon RDS MySQL database**, and accessed the site through an **Application Load Balancer (ALB)** in a multi-Availability Zone (AZ) lab. I resolved HTTP 503 / unhealthy-target issues and performed an instance detach-and-replace availability check.
+
+This repository documents the **WordPress phase** of my Week 6 high-availability exercise. The same lab also used a **separate PHP hit-counter** to test EC2 bootstrapping earlier in the assignment. **EpicBook is a different Node.js project and is not the application deployed here.**
+
+A two-tier architecture means the **WordPress web/application tier** is separate from the **MySQL database tier**. The ALB and Auto Scaling Group support availability and capacity; they are not additional application tiers.
+
+## AWS architecture
 
 ```mermaid
 flowchart TB
-    Browser[Browser / Internet] --> ALB
-    subgraph LabVPC[Shared Week 6 high-availability AWS lab]
-       ALB[Application Load Balancer - public endpoint] --> Targets[Healthy target group]
-       Targets --> WP1[WordPress + PHP on EC2 - AZ A]
-       Targets --> WP2[WordPress + PHP on EC2 - AZ B]
-       ASG[EC2 Auto Scaling Group] -. maintains capacity .-> WP1
-       ASG -. maintains capacity .-> WP2
-       WP1 --> DB[(Private Amazon RDS MySQL - Multi-AZ)]
-       WP2 --> DB
+    USER[Internet / Browser] --> ALB[Public AWS Application Load Balancer]
+    subgraph VPC[AWS VPC • two Availability Zones]
+      ALB --> TG[HTTP target group + health checks]
+      TG --> W1[EC2 • WordPress / PHP • AZ 1]
+      TG --> W2[EC2 • WordPress / PHP • AZ 2]
+      ASG[EC2 Auto Scaling Group] -. capacity / replacement .-> W1
+      ASG -. capacity / replacement .-> W2
+      W1 -->|MySQL 3306 • security-group restricted| DB[(Private Amazon RDS MySQL)]
+      W2 -->|MySQL 3306| DB
     end
+    DB --- MZ[RDS Multi-AZ configuration]
 ```
 
-## Technologies
+*The assignment report describes networking across two AZs and a private RDS database. Its notes disagree about whether ASG instances were launched in public or private subnets; this diagram intentionally does not assert an unverified EC2 subnet placement.*
 
-| Component | Role |
-| --- | --- |
-| AWS EC2 | Ubuntu web/application hosts |
-| WordPress | Content management application |
-| PHP-FPM and PHP modules | PHP runtime and MySQL integration |
-| Amazon RDS MySQL | Private relational database (`dbwordpress` in the lab notes) |
-| ALB and target group | Public entry point and HTTP health checks |
-| Auto Scaling Group | Maintain/replace lab EC2 instances |
-| AWS VPC, subnets, security groups | Network and access boundaries |
-| MySQL CLI, Linux tools | Database and application troubleshooting |
+## What I implemented
 
-## Implementation and verification
+1. **Network and access controls:** configured VPC networking, public/private subnets, routing/NAT, and security groups for the ALB, EC2, and RDS.
+2. **Load balancing and capacity:** configured the internet-facing ALB, target group/HTTP checks, and an Auto Scaling Group with desired capacity 2 (minimum 2, maximum 4).
+3. **Private MySQL:** used Amazon RDS MySQL, with inbound database access restricted to the application hosts.
+4. **WordPress deployment:** installed WordPress and the required PHP/PHP-FPM MySQL components; configured the WordPress database (`dbwordpress` in my notes); tested database read/write operations.
+5. **Incident response:** investigated a `503 Service Unavailable` response and unhealthy/deregistered targets; re-registered targets, reviewed ports and security groups, and checked WordPress/PHP and RDS connections.
+6. **Availability exercise:** detached an instance with replacement enabled, then confirmed that WordPress remained accessible through the ALB during the recorded observation.
 
-### 1. Configure the shared AWS application stack
+## Deployment evidence
 
-The Week 6 report documents a public ALB, an EC2 Auto Scaling Group operating across two Availability Zones, and RDS in private subnets. Database access was restricted to the EC2 security group. This repository references these **shared lab components**, rather than claiming additional independent provisioning.
+These images come from my **Week 6 internship submission**, not a currently running production service. The captions describe what each screenshot actually shows.
 
-![ALB in the shared lab](screenshots/01-load-balancer.jpg)
+| Target group | Auto Scaling |
+|:--:|:--:|
+| ![ALB target group and registration](screenshots/01-alb-target-group.jpg) | ![Auto Scaling configuration](screenshots/02-auto-scaling-group.jpg) |
+| **RDS access security group** | **WordPress site** |
+| ![Security group rules relevant to the database](screenshots/03-rds-security-group.jpg) | ![WordPress blog loaded in browser](screenshots/04-wordpress-live.jpg) |
+| **Instance lifecycle** | **Target health** |
+| ![ASG instances and lifecycle states](screenshots/05-asg-instance-lifecycle.jpg) | ![Target group health status](screenshots/06-target-health.jpg) |
 
-![Auto Scaling Group in the shared lab](screenshots/02-auto-scaling.jpg)
+See [screenshot provenance](screenshots/EVIDENCE_SOURCES.md) and the [operations runbook](docs/wordpress-operations.md).
 
-![Private RDS database](screenshots/03-rds-configuration.jpg)
+## Results and limitations
 
-### 2. Deploy WordPress with RDS connectivity
-
-For the WordPress portion of the lab, I installed the PHP modules needed by WordPress (including MySQL integration), configured its database settings to point to **RDS**, and verified database connectivity using the MySQL command-line client. I accessed WordPress through the ALB DNS endpoint and tested database read/write operations.
-
-![WordPress blog reached in the browser](screenshots/04-wordpress-live.jpg)
-
-### 3. Investigate HTTP 503 and unhealthy targets
-
-The reported error was **503 Service Unavailable** while ALB targets were deregistered or unhealthy. I:
-
-1. Inspected target-group health and port configuration.
-2. Re-registered running EC2 instances with the target group.
-3. Checked ALB-to-EC2 security-group rules.
-4. Confirmed WordPress and PHP-FPM were running.
-5. Tested RDS connectivity from EC2 and revisited the site through the ALB.
-
-![Target group during failure testing](screenshots/05-target-group-before-test.jpg)
-
-![Target health check and recovery evidence](screenshots/06-target-health-after-test.jpg)
-
-### 4. Controlled availability exercise
-
-The submission records an **instance detach-and-replace exercise** with Auto Scaling replacement enabled. WordPress remained browser-accessible through the ALB during the observation window. **Detaching one instance is not the same as proving an actual full-AZ outage.**
-
-Additional operational notes are in [docs/wordpress-operations.md](docs/wordpress-operations.md).
-
-## Outcomes and limitations
-
-- Deployed and reached WordPress through an ALB.
-- Connected WordPress to an RDS MySQL database and validated read/write operations.
-- Investigated unhealthy ALB targets and resolved an observed 503 issue.
-- Practiced checking instance replacement/target group health in an Auto Scaling environment.
-
-**Limits:** The report does not show a complete, reproducible WordPress bootstrap script, shared-media/storage strategy, WordPress database migration plan, TLS certificate, or production-ready hardening. This repository is a **documented lab**, not a public production WordPress template.
-
-**Evidence:** Images from the Week 6 report (pages 43, 51–57). These include shared two-tier infrastructure. Browser/account headers were masked; verify screenshots before publishing.
+- **Verified in the report:** WordPress loaded through the ALB; EC2↔RDS connectivity and WordPress read/write operations succeeded; a 503/target-health issue was investigated and addressed.
+- **Availability evidence:** an instance detach-and-replace test was recorded. This **does not prove a full AZ outage or guaranteed uninterrupted production operation**.
+- **Not demonstrated:** reliable automated WordPress installation on replacement instances; shared WordPress media/files; HTTPS/TLS; production security hardening; backup/restore procedures; end-to-end load testing.
+- **Deployment status:** this is a historical internship lab, **not a claim of a currently running public AWS endpoint**.
 
 ## Skills demonstrated
 
-`AWS EC2` · `WordPress` · `PHP-FPM` · `MySQL` · `Amazon RDS` · `ALB` · `Auto Scaling` · `Linux` · `Troubleshooting` · `HTTP 503` · `Target Groups` · `High Availability Testing`
+**Cloud & infrastructure:** AWS EC2, VPC, subnets, route tables, Internet Gateway, NAT Gateway, security groups, ALB, target groups, EC2 Auto Scaling, RDS MySQL, Multi-AZ concepts.
 
-## Author
+**Operations & troubleshooting:** Ubuntu/Linux administration, WordPress deployment, PHP/PHP-FPM, MySQL CLI, HTTP health checks, 503 incident investigation, instance lifecycle and replacement testing, security-group troubleshooting, technical documentation.
 
-**Ibrahim Ahmed Abiodun**  
-GitHub: [@slim274](https://github.com/slim274)  
-**Training:** DevOps Micro Internship — Cohort 2, Week 6, Assignment 3 (WordPress segment)
+## Credit and ownership
+
+- **Original software:** [WordPress](https://wordpress.org/), an open-source CMS developed by **WordPress contributors** (GPLv2 or later). I do **not** claim authorship of WordPress core.
+- **My contribution:** AWS infrastructure configuration, WordPress deployment and database integration, troubleshooting, operational verification, and this DevOps case study.
+- **Internship:** DevOps Micro Internship (DMI), Cohort 2.
+- **Portfolio author:** [@slim274](https://github.com/slim274).
+
+**GitHub naming:** Current repo: [`aws-wordpress-alb-rds`](https://github.com/slim274/aws-wordpress-alb-rds). Recommended descriptive name: `aws-wordpress-two-tier-high-availability`. Rename only after you are ready; instructions are in [docs/GITHUB_RENAME.md](docs/GITHUB_RENAME.md).
