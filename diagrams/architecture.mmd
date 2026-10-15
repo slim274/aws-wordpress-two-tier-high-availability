@@ -1,0 +1,11 @@
+flowchart TB
+    Browser[Browser / Internet] --> ALB
+    subgraph LabVPC[Shared Week 6 high-availability AWS lab]
+       ALB[Application Load Balancer - public endpoint] --> Targets[Healthy target group]
+       Targets --> WP1[WordPress + PHP on EC2 - AZ A]
+       Targets --> WP2[WordPress + PHP on EC2 - AZ B]
+       ASG[EC2 Auto Scaling Group] -. maintains capacity .-> WP1
+       ASG -. maintains capacity .-> WP2
+       WP1 --> DB[(Private Amazon RDS MySQL - Multi-AZ)]
+       WP2 --> DB
+    end

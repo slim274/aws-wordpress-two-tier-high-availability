@@ -1,0 +1,13 @@
+# Avoid leaking credentials or ephemeral environment artifacts
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+terraform.tfstate*
+.terraform/
+node_modules/
+__pycache__/
+.DS_Store
